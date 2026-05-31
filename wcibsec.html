@@ -133,6 +133,10 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--mono);font-si
 .filter-btn{padding:6px 14px;font-size:13px;font-weight:600;font-family:var(--mono);border:1px solid var(--border2);border-radius:999px;background:transparent;color:var(--text2);cursor:pointer;transition:all 0.15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .filter-btn.active{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
 .empty-state{text-align:center;padding:32px 16px;color:var(--text3);font-size:15px;}
+.edit-form{background:var(--bg2);border:1px solid var(--accent);border-radius:var(--radius-sm);padding:16px;margin-bottom:8px;}
+.edit-form .field{margin-bottom:10px;}
+.edit-btns{display:flex;gap:8px;margin-top:12px;}
+.edit-btns .btn{flex:1;}
 @media(max-width:480px){.grid-3{grid-template-columns:1fr 1fr;}.field-row{flex-direction:column;gap:0;}}
 </style>
 </head>
@@ -252,14 +256,14 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--mono);font-si
         </select>
       </div>
     </div>
+    <div class="field">
+      <label>Monthly Contribution (£)</label>
+      <input type="number" id="newMemberAmount" placeholder="e.g. 50" min="0" step="0.01" inputmode="decimal">
+    </div>
     <button class="btn btn-primary" onclick="addMember()" style="width:100%">+ Add Member</button>
   </div>
   <div class="section-head">Settings</div>
   <div class="card">
-    <div class="field">
-      <label>Monthly Contribution Amount (£)</label>
-      <input type="number" id="monthlyContrib" min="1" step="1" value="50" inputmode="numeric">
-    </div>
     <div class="field">
       <label>Change Admin PIN</label>
       <input type="password" id="newPin" placeholder="New 4-digit PIN" maxlength="4" inputmode="numeric">
@@ -305,7 +309,7 @@ let txType='deposit', txFilter='all', pinTarget=null;
 
 function getState(){try{return JSON.parse(localStorage.getItem('wcib_treasury')||'{}');}catch(e){return {};}}
 function saveState(s){localStorage.setItem('wcib_treasury',JSON.stringify(s));}
-function defaultState(){return{pin:DEFAULT_PIN,monthlyAmount:50,members:[],transactions:[]};}
+function defaultState(){return{pin:DEFAULT_PIN,members:[],transactions:[]};}
 function getS(){const s=getState();if(!s.members)return Object.assign(defaultState(),s);return s;}
 
 function fmt(n){return'\u00a3'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
@@ -315,8 +319,10 @@ function monthLabel(ym){const[y,m]=ym.split('-');return new Date(parseInt(y),par
 
 function memberPaidThisMonth(name,txs,amt){
   const cm=currentMonth();
+  const memberAmt=amt||0;
+  if(memberAmt<=0)return'paid';
   const paid=txs.filter(t=>t.type==='deposit'&&t.member===name&&t.date.startsWith(cm)).reduce((a,t)=>a+t.amount,0);
-  if(paid>=amt)return'paid';if(paid>0)return'partial';return'pending';
+  if(paid>=memberAmt)return'paid';if(paid>0)return'partial';return'pending';
 }
 function memberTotal(name,txs){return txs.filter(t=>t.type==='deposit'&&t.member===name).reduce((a,t)=>a+t.amount,0);}
 
@@ -348,19 +354,21 @@ function deleteTransaction(id){if(!confirm('Delete this transaction?'))return;co
 
 function addMember(){
   const name=document.getElementById('newMemberName').value.trim(),role=document.getElementById('newMemberRole').value;
+  const amt=parseFloat(document.getElementById('newMemberAmount').value)||0;
   if(!name){alert('Please enter a name.');return;}
+  if(amt<=0){alert('Please enter a monthly contribution amount.');return;}
   const s=getS();
   if(s.members.find(m=>m.name.toLowerCase()===name.toLowerCase())){alert('Member already exists.');return;}
-  s.members.push({id:Date.now(),name,role});saveState(s);document.getElementById('newMemberName').value='';renderAll();
+  s.members.push({id:Date.now(),name,role,monthlyAmount:amt});saveState(s);document.getElementById('newMemberName').value='';document.getElementById('newMemberAmount').value='';renderAll();
 }
 
 function deleteMember(id){if(!confirm('Remove this member? Their transactions remain.'))return;const s=getS();s.members=s.members.filter(m=>m.id!==id);saveState(s);renderAll();}
 
 function saveSettings(){
-  const s=getS(),amount=parseFloat(document.getElementById('monthlyContrib').value),newPin=document.getElementById('newPin').value.trim();
-  if(amount>0)s.monthlyAmount=amount;
-  if(newPin.length===4&&/^\d+$/.test(newPin)){s.pin=newPin;document.getElementById('newPin').value='';alert('PIN updated!');}
-  saveState(s);renderAll();
+  const s=getS(),newPin=document.getElementById('newPin').value.trim();
+  if(newPin.length===4&&/^\d+$/.test(newPin)){s.pin=newPin;document.getElementById('newPin').value='';alert('PIN updated!');saveState(s);}
+  else if(newPin.length>0){alert('PIN must be exactly 4 digits.');}
+  renderAll();
 }
 
 function clearAllData(){if(!confirm('Are you sure? This deletes ALL data permanently.'))return;localStorage.removeItem('wcib_treasury');renderAll();}
@@ -393,17 +401,18 @@ function renderTransactions(){
 function renderMembers(){
   const s=getS(),cm=currentMonth();
   document.getElementById('currentMonthLabel').textContent=monthLabel(cm);
-  const paid=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,s.monthlyAmount)==='paid').length;
-  const partial=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,s.monthlyAmount)==='partial').length;
-  const pending=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,s.monthlyAmount)==='pending').length;
+  const paid=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,m.monthlyAmount||0)==='paid').length;
+  const partial=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,m.monthlyAmount||0)==='partial').length;
+  const pending=s.members.filter(m=>memberPaidThisMonth(m.name,s.transactions,m.monthlyAmount||0)==='pending').length;
   document.getElementById('memberStats').innerHTML='<div class="metric m-green"><div class="metric-label">Paid</div><div class="metric-value good">'+paid+'</div></div><div class="metric m-amber"><div class="metric-label">Partial</div><div class="metric-value warn">'+partial+'</div></div><div class="metric m-red"><div class="metric-label">Pending</div><div class="metric-value bad">'+pending+'</div></div>';
   const list=document.getElementById('memberList');
   if(!s.members.length){list.innerHTML='<div class="empty-state">No members yet. Add them in Admin.</div>';return;}
   list.innerHTML=s.members.map(m=>{
-    const status=memberPaidThisMonth(m.name,s.transactions,s.monthlyAmount),total=memberTotal(m.name,s.transactions);
+    const mAmt=m.monthlyAmount||0;
+    const status=memberPaidThisMonth(m.name,s.transactions,mAmt),total=memberTotal(m.name,s.transactions);
     const pc=status==='paid'?'pill-paid':status==='partial'?'pill-pending':'pill-overdue';
     const pl=status==='paid'?'\u2713 Paid':status==='partial'?'~ Partial':'\u2717 Pending';
-    return'<div class="member-card"><div class="member-avatar">'+getInitials(m.name)+'</div><div class="member-body"><div class="member-name">'+m.name+' <span style="font-size:12px;color:var(--text3)">'+m.role+'</span></div><div class="member-total">Total contributed: '+fmt(total)+'</div></div><span class="member-month-pill '+pc+'">'+pl+'</span></div>';
+    return'<div class="member-card"><div class="member-avatar">'+getInitials(m.name)+'</div><div class="member-body"><div class="member-name">'+m.name+' <span style="font-size:12px;color:var(--text3)">'+m.role+'</span></div><div class="member-total">Monthly: '+fmt(mAmt)+' \u00b7 Total contributed: '+fmt(total)+'</div></div><span class="member-month-pill '+pc+'">'+pl+'</span></div>';
   }).join('');
 }
 
@@ -413,7 +422,7 @@ function renderSummary(){
   const expenses=txs.filter(t=>t.type==='withdrawal').reduce((a,t)=>a+t.amount,0);
   const balance=income-expenses;
   document.getElementById('sumBalance').textContent=fmt(balance);
-  document.getElementById('sumTarget').textContent=fmt(s.members.length*(s.monthlyAmount||50));
+  document.getElementById('sumTarget').textContent=fmt(s.members.reduce(function(a,m){return a+(m.monthlyAmount||0);},0));
   document.getElementById('sumIncome').textContent=fmt(income);
   document.getElementById('sumExpenses').textContent=fmt(expenses);
   document.getElementById('sumMembers').textContent=s.members.length;
@@ -435,10 +444,35 @@ function renderSummary(){
 }
 
 function renderAdmin(){
-  const s=getS();document.getElementById('monthlyContrib').value=s.monthlyAmount||50;
+  const s=getS();
   const list=document.getElementById('adminMemberList');
   if(!s.members.length){list.innerHTML='<div class="empty-state">No members yet.</div>';return;}
-  list.innerHTML=s.members.map(m=>'<div class="member-card"><div class="member-avatar">'+getInitials(m.name)+'</div><div class="member-body"><div class="member-name">'+m.name+'</div><div class="member-total">'+m.role+'</div></div><button class="btn btn-red btn-sm" onclick="deleteMember('+m.id+')">Remove</button></div>').join('');
+  list.innerHTML=s.members.map(m=>'<div class="member-card" id="mc-'+m.id+'"><div class="member-avatar">'+getInitials(m.name)+'</div><div class="member-body"><div class="member-name">'+m.name+'</div><div class="member-total">'+m.role+' \u00b7 Monthly: \u00a3'+(m.monthlyAmount||0).toFixed(2)+'</div></div><div style="display:flex;gap:6px;"><button class="btn btn-ghost btn-sm" onclick="editMember('+m.id+')">Edit</button><button class="btn btn-red btn-sm" onclick="deleteMember('+m.id+')">Remove</button></div></div>').join('');
+}
+
+function editMember(id){
+  const s=getS(),m=s.members.find(x=>x.id===id);
+  if(!m)return;
+  var el=document.getElementById('mc-'+id);
+  if(!el)return;
+  el.outerHTML='<div class="edit-form" id="ef-'+id+'"><div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:12px;">Edit Member</div><div class="field-row"><div class="field"><label>Name</label><input type="text" id="en-'+id+'" value="'+m.name+'"></div><div class="field"><label>Role</label><select id="er-'+id+'"><option value="Member"'+(m.role==='Member'?' selected':'')+'>Member</option><option value="Admin"'+(m.role==='Admin'?' selected':'')+'>Admin</option><option value="Treasurer"'+(m.role==='Treasurer'?' selected':'')+'>Treasurer</option></select></div></div><div class="field"><label>Monthly Contribution (\u00a3)</label><input type="number" id="ea-'+id+'" value="'+(m.monthlyAmount||0)+'" min="0" step="0.01" inputmode="decimal"></div><div class="edit-btns"><button class="btn btn-ghost" onclick="renderAdmin()">Cancel</button><button class="btn btn-gold" onclick="saveMemberEdit('+id+')">Save</button></div></div>';
+}
+
+function saveMemberEdit(id){
+  var s=getS(),m=s.members.find(x=>x.id===id);
+  if(!m)return;
+  var newName=document.getElementById('en-'+id).value.trim();
+  var newRole=document.getElementById('er-'+id).value;
+  var newAmt=parseFloat(document.getElementById('ea-'+id).value)||0;
+  if(!newName){alert('Name cannot be empty.');return;}
+  var oldName=m.name;
+  if(newName.toLowerCase()!==oldName.toLowerCase()&&s.members.find(x=>x.id!==id&&x.name.toLowerCase()===newName.toLowerCase())){alert('A member with that name already exists.');return;}
+  if(newName!==oldName){s.transactions.forEach(function(t){if(t.member===oldName)t.member=newName;});}
+  m.name=newName;
+  m.role=newRole;
+  m.monthlyAmount=newAmt;
+  saveState(s);
+  renderAll();
 }
 
 function renderAll(){populateMemberDropdown();renderTransactions();renderMembers();renderSummary();renderAdmin();}
